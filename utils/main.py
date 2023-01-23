@@ -2,6 +2,7 @@ import datetime as dt
 from dateutil.relativedelta import relativedelta
 import boto3, os 
 import pandas as pd
+import numpy as np
 
 class QA_Raw_CRT():
 
@@ -53,7 +54,6 @@ class QA_Raw_CRT():
 
         # return df_json, df_spss
         return df_json
-
     
     def compare_col(self, cur_cols, lst_cols):
 
@@ -67,30 +67,46 @@ class QA_Raw_CRT():
 
         return new_cols, missing_cols
     
+    def remove_nan_value_in_common(self, final_list, cur_list, lst_list):
+
+        if np.nan in cur_list and np.nan in lst_list:
+            if len(final_list) > 1:
+               final_list_no_nan = [x for x in final_list if ~np.isnan(x)]
+            elif len(final_list) == 1:
+                final_list_no_nan = []
+        
+        else:
+            pass 
+
+        return final_list_no_nan
+
     def compare_unique_values_by_col(self, df_cur, df_lst, cols_cur, cols_lst):
 
-        df_unique_value_new, df_unique_value_missing = pd.DataFrame(), pd.DataFrame()
+        # df_unique_value_new, df_unique_value_missing = pd.DataFrame(), pd.DataFrame()
+        dict_unique_value_new, dict_unique_value_missing = {}, {}
 
-        for col in cols_cur:
-            if col in cols_lst:
-                value_list_cur = df_cur[col].unique().tolist()
-                value_list_lst = df_lst[col].unique().tolist()
-                new_unique_values = self.compare_col(value_list_cur, value_list_lst)
-                missing_unique_values = self.compare_col(value_list_lst, value_list_cur)
-                if len(new_unique_values) != 0:
-                    df_unique_value_new[col] = new_unique_values
-                if len(missing_unique_values) != 0:
-                    df_unique_value_missing[col] = missing_unique_values
+        common_col_names = [col for col in cols_cur if col in cols_lst]
+        for col in common_col_names:
+            value_list_cur = df_cur[col].unique().tolist()
+            value_list_lst = df_lst[col].unique().tolist()
+            new_unique_values, missing_unique_values = self.compare_col(value_list_cur, value_list_lst)
+            # new_unique_values = self.remove_nan_value_in_common(new_unique_values, value_list_cur, value_list_lst)
+            # missing_unique_values = self.remove_nan_value_in_common(missing_unique_values, value_list_cur, value_list_lst)
+            if len(new_unique_values) != 0 :
+                dict_unique_value_new[col] = new_unique_values
+            if len(missing_unique_values) != 0:
+                dict_unique_value_missing[col] = missing_unique_values
 
-        return df_unique_value_new, df_unique_value_missing
+        return dict_unique_value_new, dict_unique_value_missing
 
-    def add_first_column(self, df, new_column_value, new_col_type):
+    def add_column(self, dictionary, new_column_value, new_col_type):
 
         new_column_name = new_col_type + '_Column_Name'
 
-        df.insert(loc=0, column= new_column_name, value=new_column_value)
+        # df.insert(loc=0, column= new_column_name, value=new_column_value)
+        dictionary[new_column_name] = new_column_value
 
-        return df
+        return dictionary
     
     def get_compared_results_from_df(self, df_cur, df_lst):
 
@@ -98,13 +114,13 @@ class QA_Raw_CRT():
 
         new_cols, missing_cols = self.compare_col(cols_cur, cols_lst)
 
-        df_new, df_missing = self.compare_unique_values_by_col(df_cur, df_lst, cols_cur, cols_lst)
+        dict_new, dict_missing = self.compare_unique_values_by_col(df_cur, df_lst, cols_cur, cols_lst)
 
-        df_new = self.add_first_column(df_new, new_cols, new_col_type='New')
+        dict_new = self.add_column(dict_new, new_cols, new_col_type='New')
 
-        df_missing = self.add_first_column(df_missing, missing_cols, new_col_type='Missing')
+        dict_missing = self.add_column(dict_missing, missing_cols, new_col_type='Missing')
 
-        return df_new, df_missing
+        return dict_new, dict_missing
     
     def main(self, execution_year_month_str, bucketname):
 
@@ -128,7 +144,7 @@ class QA_Raw_CRT():
 
         # df_lst_json, df_lst_spss = self.get_json_data_s3(self.pre_exe_year, self.pre_exe_month, bucketname, parent_dir)
         
-        df_new_json, df_missing_json = self.get_compared_results_from_df(df_cur_json, df_lst_json)
+        dict_new_json, dict_missing_json = self.get_compared_results_from_df(df_cur_json, df_lst_json)
 
         del df_cur_json, df_lst_json
 
@@ -137,4 +153,4 @@ class QA_Raw_CRT():
         # del df_cur_spss, df_lst_spss
 
         # return df_new_json, df_missing_json, df_new_spss, df_missing_spss  
-        return df_new_json, df_missing_json
+        return dict_new_json, dict_missing_json
