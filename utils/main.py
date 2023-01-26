@@ -68,24 +68,25 @@ class QA_Raw_CRT():
         return new_cols, missing_cols
     
     def remove_nan_value_in_common(self, final_list, cur_list, lst_list):
-
-        if np.nan in cur_list and np.nan in lst_list:
-            if len(final_list) > 1:
-               final_list_no_nan = [x for x in final_list if ~np.isnan(x)]
-            elif len(final_list) == 1:
-                final_list_no_nan = []
         
+        cur_list_str = list(map(str, cur_list))
+        lst_list_str = list(map(str, lst_list)) 
+        
+
+        if (str(np.nan) in cur_list_str) and (str(np.nan) in lst_list_str):
+            final_list = [x for x in final_list if str(x)!=str(np.nan)]
+            
         else:
             pass 
 
-        return final_list_no_nan
+        return final_list
     
     def compare_unique_val_by_comm_col(self, df_cur,  df_lst, col, dict_unique_value_new, dict_unique_value_missing):
         value_list_cur = df_cur[col].unique().tolist()
         value_list_lst = df_lst[col].unique().tolist()
         new_unique_values, missing_unique_values = self.compare_col(value_list_cur, value_list_lst)
-        # new_unique_values = self.remove_nan_value_in_common(new_unique_values, value_list_cur, value_list_lst)
-        # missing_unique_values = self.remove_nan_value_in_common(missing_unique_values, value_list_cur, value_list_lst)
+        new_unique_values = self.remove_nan_value_in_common(new_unique_values, value_list_cur, value_list_lst)
+        missing_unique_values = self.remove_nan_value_in_common(missing_unique_values, value_list_cur, value_list_lst)
         if len(new_unique_values) != 0 :
             dict_unique_value_new[col] = new_unique_values
         if len(missing_unique_values) != 0:
