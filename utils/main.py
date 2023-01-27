@@ -68,59 +68,89 @@ class QA_Raw_CRT():
         return new_cols, missing_cols
     
     def remove_nan_value_in_common(self, final_list, cur_list, lst_list):
-
-        if np.nan in cur_list and np.nan in lst_list:
-            if len(final_list) > 1:
-               final_list_no_nan = [x for x in final_list if ~np.isnan(x)]
-            elif len(final_list) == 1:
-                final_list_no_nan = []
         
+        cur_list_str = list(map(str, cur_list))
+        lst_list_str = list(map(str, lst_list)) 
+        
+
+        if (str(np.nan) in cur_list_str) and (str(np.nan) in lst_list_str):
+            final_list = [x for x in final_list if str(x)!=str(np.nan)]
+            
         else:
             pass 
 
-        return final_list_no_nan
+        return final_list
+    
+    def compare_unique_val_by_comm_col(self, df_cur,  df_lst, col, dict_unique_value_new, dict_unique_value_missing):
+        value_list_cur = df_cur[col].unique().tolist()
+        value_list_lst = df_lst[col].unique().tolist()
+        new_unique_values, missing_unique_values = self.compare_col(value_list_cur, value_list_lst)
+        new_unique_values = self.remove_nan_value_in_common(new_unique_values, value_list_cur, value_list_lst)
+        missing_unique_values = self.remove_nan_value_in_common(missing_unique_values, value_list_cur, value_list_lst)
+        if len(new_unique_values) != 0 :
+            dict_unique_value_new[col] = new_unique_values
+        if len(missing_unique_values) != 0:
+            dict_unique_value_missing[col] = missing_unique_values
+                
+        return dict_unique_value_new, dict_unique_value_missing
+    
+    def get_diff_dtype_by_comm_col(self, df_cur, df_lst, col, dict_dtype_diff):
+        
+        dtype_cur, dtype_lst = df_cur[col].dtypes, df_lst[col].dtypes
+        
+        if dtype_cur != dtype_lst:
+            
+            dict_dtype_diff['Column_Name'].append(col)
+            dict_dtype_diff['Current_Dtype'].append(dtype_cur)
+            dict_dtype_diff['Previous_Dtype'].append(dtype_lst)
+        
+        else:
+            pass
+            
+        return dict_dtype_diff
 
-    def compare_unique_values_by_col(self, df_cur, df_lst, cols_cur, cols_lst):
+    def get_missing_val_percent(self, df_cur):
+        
+        cur_missing_val_perc = df_cur.isnull().sum()/len(df_cur)
+        
+        df_cur_missing_val_perc = pd.DataFrame({'Column_Name': cur_missing_val_perc.index,
+                                                'Missing_Percent': cur_missing_val_perc.values})
+        
+        return df_cur_missing_val_perc        
+
+    def compare_val_by_comm_col(self, df_cur, df_lst, cols_cur, cols_lst):
 
         # df_unique_value_new, df_unique_value_missing = pd.DataFrame(), pd.DataFrame()
         dict_unique_value_new, dict_unique_value_missing = {}, {}
+        
+        dict_dtype_diff = {'Column_Name':[], 'Current_Dtype':[], 'Previous_Dtype':[]}
 
         common_col_names = [col for col in cols_cur if col in cols_lst]
         for col in common_col_names:
-            value_list_cur = df_cur[col].unique().tolist()
-            value_list_lst = df_lst[col].unique().tolist()
-            new_unique_values, missing_unique_values = self.compare_col(value_list_cur, value_list_lst)
-            # new_unique_values = self.remove_nan_value_in_common(new_unique_values, value_list_cur, value_list_lst)
-            # missing_unique_values = self.remove_nan_value_in_common(missing_unique_values, value_list_cur, value_list_lst)
-            if len(new_unique_values) != 0 :
-                dict_unique_value_new[col] = new_unique_values
-            if len(missing_unique_values) != 0:
-                dict_unique_value_missing[col] = missing_unique_values
+            
+            dict_unique_value_new, dict_unique_value_missing = self.compare_unique_val_by_comm_col(df_cur,  \
+                df_lst, col, dict_unique_value_new, dict_unique_value_missing)
+            
+            dict_dtype_diff = self.get_diff_dtype_by_comm_col(df_cur, df_lst, col, dict_dtype_diff)
+            
+        return dict_unique_value_new, dict_unique_value_missing, dict_dtype_diff
 
-        return dict_unique_value_new, dict_unique_value_missing
-
-    def add_column(self, dictionary, new_column_value, new_col_type):
-
-        new_column_name = new_col_type + '_Column_Name'
-
-        # df.insert(loc=0, column= new_column_name, value=new_column_value)
-        dictionary[new_column_name] = new_column_value
-
-        return dictionary
-    
     def get_compared_results_from_df(self, df_cur, df_lst):
 
         cols_cur, cols_lst = df_cur.columns, df_lst.columns
 
-        new_cols, missing_cols = self.compare_col(cols_cur, cols_lst)
+        new_cols, missing_cols = self.compare_col_name(cols_cur, cols_lst)
 
-        dict_new, dict_missing = self.compare_unique_values_by_col(df_cur, df_lst, cols_cur, cols_lst)
+        dict_new, dict_missing, dict_dtype_diff = self.compare_val_by_col(df_cur, df_lst, cols_cur, cols_lst)
+        
+        df_cur_missing_val_perc = self.get_missing_val_percent(df_cur)
+        
+        # dict_new = self.add_column(dict_new, new_cols, new_col_type='New')
 
-        dict_new = self.add_column(dict_new, new_cols, new_col_type='New')
+        # dict_missing = self.add_column(dict_missing, missing_cols, new_col_type='Missing')
+        
 
-        dict_missing = self.add_column(dict_missing, missing_cols, new_col_type='Missing')
-
-        return dict_new, dict_missing
+        return new_cols, missing_cols, dict_new, dict_missing, dict_dtype_diff, df_cur_missing_val_perc
     
     def main(self, execution_year_month_str, bucketname):
 
