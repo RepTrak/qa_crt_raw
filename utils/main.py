@@ -20,8 +20,33 @@ class QA_Raw_CRT():
         os.rmdir(full_dir)
         return 
     
-    # def get_json_data_s3(self, year, month, bucketname, parent_dir):
-    def get_json_data_s3(self, year, month, bucketname):
+    def get_json_data(self, prefix_objs):
+        
+        dflist = []
+        for obj in prefix_objs:
+            if obj.key.split('.')[-1] == 'json':
+                dftemp = pd.read_json(obj.get()['Body'])
+                dflist.append(dftemp)
+                del dftemp
+        
+        df_json = pd.concat(dflist, sort=False)
+        del dflist
+        
+        return df_json
+    
+    def get_spss_date(self, prefix_objs, parent_dir, tmp_path, bucket):
+        
+        for obj in prefix_objs:
+            if obj.key.split('.')[-1] == 'sav':
+                filename = obj.key.split('/')[-1]
+                full_path = self.new_path_4_download_file(parent_dir, tmp_path)
+                bucket.download_file(obj.key, full_path+filename)
+                df_spss = pd.read_spss(full_path+filename)
+                self.delete_tmp_folder_file(full_path, filename)
+        
+        return df_spss         
+    
+    def get_data_s3(self, year, month, bucketname, parent_dir, file_type):
 
         s3 = boto3.client('s3')
         subfolder =  str(year) + '/' + str(month)+ '/' + 'raw_data/'
@@ -32,30 +57,17 @@ class QA_Raw_CRT():
         bucket = s3.Bucket(bucketname)
         prefix_objs = bucket.objects.filter(Prefix=subfolder)
 
-        dflist = []
         tmp_path = '/tmp/'
-
-        for obj in prefix_objs:
-            if obj.key.split('.')[-1] == 'json':
-                dftemp = pd.read_json(obj.get()['Body'])
-                dflist.append(dftemp)
-                del dftemp
-
-            # if obj.key.split('.')[-1] == 'sav':
-          
-            #     filename = obj.key.split('/')[-1]
-            #     full_path = self.new_path_4_download_file(parent_dir, tmp_path)
-            #     bucket.download_file(obj.key, full_path+filename)
-            #     df_spss = pd.read_spss(full_path+filename)
-            #     self.delete_tmp_folder_file(full_path, filename)
-
-        df_json = pd.concat(dflist)
-        del dflist
-
-        # return df_json, df_spss
-        return df_json
+        
+        if file_type == 'json':
+            df = self.get_json_data(prefix_objs)
+            
+        if file_type == 'spss':
+            df = self.get_json_data(prefix_objs, parent_dir, tmp_path, bucket)
+            
+        return df
     
-    def compare_col(self, cur_cols, lst_cols):
+    def compare_col_name(self, cur_cols, lst_cols):
 
         # new columns for this month
 
@@ -84,7 +96,7 @@ class QA_Raw_CRT():
     def compare_unique_val_by_comm_col(self, df_cur,  df_lst, col, dict_unique_value_new, dict_unique_value_missing):
         value_list_cur = df_cur[col].unique().tolist()
         value_list_lst = df_lst[col].unique().tolist()
-        new_unique_values, missing_unique_values = self.compare_col(value_list_cur, value_list_lst)
+        new_unique_values, missing_unique_values = self.compare_col_name(value_list_cur, value_list_lst)
         new_unique_values = self.remove_nan_value_in_common(new_unique_values, value_list_cur, value_list_lst)
         missing_unique_values = self.remove_nan_value_in_common(missing_unique_values, value_list_cur, value_list_lst)
         if len(new_unique_values) != 0 :
@@ -106,8 +118,10 @@ class QA_Raw_CRT():
         
         else:
             pass
+        
+        df_dtype_diff = pd.DataFrame(dict_dtype_diff)
             
-        return dict_dtype_diff
+        return df_dtype_diff
 
     def get_missing_val_percent(self, df_cur):
         
@@ -126,14 +140,16 @@ class QA_Raw_CRT():
         dict_dtype_diff = {'Column_Name':[], 'Current_Dtype':[], 'Previous_Dtype':[]}
 
         common_col_names = [col for col in cols_cur if col in cols_lst]
+        common_col_names.remove('RESP_TOKEN')
+        
         for col in common_col_names:
             
             dict_unique_value_new, dict_unique_value_missing = self.compare_unique_val_by_comm_col(df_cur,  \
                 df_lst, col, dict_unique_value_new, dict_unique_value_missing)
             
-            dict_dtype_diff = self.get_diff_dtype_by_comm_col(df_cur, df_lst, col, dict_dtype_diff)
+            df_dtype_diff = self.get_diff_dtype_by_comm_col(df_cur, df_lst, col, dict_dtype_diff)
             
-        return dict_unique_value_new, dict_unique_value_missing, dict_dtype_diff
+        return dict_unique_value_new, dict_unique_value_missing, df_dtype_diff
 
     def get_compared_results_from_df(self, df_cur, df_lst):
 
@@ -141,7 +157,7 @@ class QA_Raw_CRT():
 
         new_cols, missing_cols = self.compare_col_name(cols_cur, cols_lst)
 
-        dict_new, dict_missing, dict_dtype_diff = self.compare_val_by_col(df_cur, df_lst, cols_cur, cols_lst)
+        dict_new, dict_missing, df_dtype_diff = self.compare_val_by_comm_col(df_cur, df_lst, cols_cur, cols_lst)
         
         df_cur_missing_val_perc = self.get_missing_val_percent(df_cur)
         
@@ -150,9 +166,9 @@ class QA_Raw_CRT():
         # dict_missing = self.add_column(dict_missing, missing_cols, new_col_type='Missing')
         
 
-        return new_cols, missing_cols, dict_new, dict_missing, dict_dtype_diff, df_cur_missing_val_perc
+        return new_cols, missing_cols, dict_new, dict_missing, df_dtype_diff, df_cur_missing_val_perc
     
-    def main(self, execution_year_month_str, bucketname):
+    def main(self, execution_year_month_str, bucketname, file_type):
 
         parent_dir = os.getcwd()
 
@@ -164,23 +180,14 @@ class QA_Raw_CRT():
         pre_exe_year = previous_execution_year_month.year
         pre_exe_month = previous_execution_year_month.month
         
+        df_cur= self.get_data_s3(cur_exe_year, cur_exe_month, bucketname, parent_dir, file_type)
+
+        df_lst = self.get_data_s3(pre_exe_year, pre_exe_month, bucketname, parent_dir, file_type)
         
-        df_cur_json = self.get_json_data_s3(cur_exe_year, cur_exe_month, bucketname)
-
-        df_lst_json = self.get_json_data_s3(pre_exe_year, pre_exe_month, bucketname)
-
-
-        # df_cur_json, df_cur_spss = self.get_json_data_s3(self.cur_exe_year, self.cur_exe_month, bucketname, parent_dir)
-
-        # df_lst_json, df_lst_spss = self.get_json_data_s3(self.pre_exe_year, self.pre_exe_month, bucketname, parent_dir)
+        new_cols, missing_cols, dict_new_uni_val, dict_missing_uni_val, df_dtype_diff, \
+            df_cur_missing_val_perc = self.get_compared_results_from_df(df_cur, df_lst)
         
-        dict_new_json, dict_missing_json = self.get_compared_results_from_df(df_cur_json, df_lst_json)
-
-        del df_cur_json, df_lst_json
-
-        # df_new_spss, df_missing_spss = self.get_compared_results_from_df(df_cur_spss, df_lst_spss)
-
-        # del df_cur_spss, df_lst_spss
+        del df_cur, df_lst
 
         # return df_new_json, df_missing_json, df_new_spss, df_missing_spss  
-        return dict_new_json, dict_missing_json
+        return new_cols, missing_cols, dict_new_uni_val, dict_missing_uni_val, df_dtype_diff, df_cur_missing_val_perc
